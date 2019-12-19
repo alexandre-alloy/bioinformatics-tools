@@ -62,3 +62,54 @@ Knn_metaCells <- function(normData, rawCounts, K, normalization = c('lognormaliz
   
   return(res)
 }
+
+                                   
+#Metacell from a Seurat object (SNN distance)
+metacell <- function(Seurat_object, k = 10, number_metacells = 500, cell_labels = NULL, threshold_cells_with_low_representation = 1000){
+  
+  nsamples = dim(Seurat_object)[2]
+  k = k + 1
+  
+  random_index = sample(1:nsamples, nsamples, F)
+  
+  if (!is.null(cell_labels)){
+    random_index_representation = sapply(1:nsamples, function(i) length(which(cell_labels == cell_labels[i])))
+    random_index <- random_index[-unique(c(which(random_index_representation < threshold_cells_with_low_representation), which(is.na(cell_labels))))]
+  }
+  
+  #identifying the nearest neighbors
+  
+  metacell_res = matrix(data = NA, nrow = nrow(Seurat_object), ncol = number_metacells, dimnames = list(row.names(Seurat_object), paste0('metacell_', 1:number_metacells)))
+  dense_counts_mat = as.matrix(Seurat_object@assays$RNA@counts)
+  
+  if (is.null(cell_labels)){
+    res = lapply(1:nsamples, function(i)  order(Seurat_object@graphs$RNA_snn[i,], decreasing = T)[1:k])
+    res = matrix(unlist(res), nrow = k, ncol = nsamples)
+    res = t(res)
+    row.names(res) = colnames(Seurat_object)
+    colnames(res) = paste0('Neighbor_', 1:k)
+    
+    for (i in 1:number_metacells){
+      selected_neighbors = res[random_index[i],]
+      metacell_res[,i] = rowSums(dense_counts_mat[,selected_neighbors])
+    }
+  }
+  
+  else{
+    SNN_mat = as.matrix(Seurat_object@graphs$RNA_snn)
+    SNN_mat = lapply(random_index, function(i)  order(SNN_mat[i,], decreasing = T))
+    
+    for (i in 1:number_metacells){
+      cell_type = cell_labels[random_index[i]]
+      selected_neighbors = which(cell_labels[SNN_mat[[i]]] == cell_type)[1:k]
+      metacell_res[,i] = rowSums(dense_counts_mat[,selected_neighbors])  
+    }
+    
+    
+  }
+  
+  metacell_res = t(metacell_res)/colSums(metacell_res)
+  metacell_res = metacell_res * 1000000
+  metacell_res = metacell_res + 1
+  metacell_res = log(metacell_res)
+  metacell_res = t(metacell_res)
